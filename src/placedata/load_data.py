@@ -123,7 +123,40 @@ def LoadBasePixelsintoSQLite():
     
     print("completed writing base pixel to SQLite table")
     
+def GetPixelColour(pixel_timestamp, x, y):
+    
+    conn = sqlite3.connect('PlaceData.db')
+    c = conn.cursor()
+    
+    #look up the base pixel colour
+    t = (x, y)    
+    c.execute('SELECT * FROM pixel_base WHERE x=? AND y=?', t)
+    result_base = c.fetchone()
+    
+    if result_base is None:
+        raise ValueError('Failed to lookup base pixel value for x = ' + str(x) + ' y = ' + str(y))
+ 
+    base_colour = result_base[2]
+    
+    #check to see if the pixel changes for the given timestamp, get the colour value for the most recent timestamp if it does
+    t = (x, y, pixel_timestamp)
+    c.execute('SELECT colour FROM pixel_diffs WHERE x=? AND y=? AND timestamp <= ? ORDER BY timestamp DESC', t)
+    result_diff = c.fetchone()
+    
+    if result_diff is None:
+        return base_colour
+    else:
+        return result_diff[0]
+    
+    
+    
 if __name__ == "__main__":
     LoadPixelDiffsIntoSQLite()
     LoadBasePixelsintoSQLite()
+    
+    print(GetPixelColour(1490992863, 682, 504))
+    print(GetPixelColour(1490992865, 682, 504))
+    print(GetPixelColour(1490992866, 682, 504))
+    print(GetPixelColour(1491129186, 682, 504))
+    print(GetPixelColour(1491129185, 682, 504))
             
