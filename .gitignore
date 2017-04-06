@@ -23,3 +23,4 @@ local.properties
 *.png
 *.bin
 *.db
+*.db-journal
