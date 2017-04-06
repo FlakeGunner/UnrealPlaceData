@@ -250,7 +250,7 @@ def GetPixelColour(pixel_timestamp, x, y, base_pixels, pixels_diffs):
     #if there's no diff that matches return last pixel value in diffs
     return diffs[-1][1]
         
-def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs):
+def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output_directory, filename = None):
     #validate timestamp and x,y inputs
     if png_timestamp < 0:
         raise ValueError("Negative timestamp in generate png")
@@ -268,12 +268,19 @@ def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs):
         raise ValueError("Bad y2 value in generate png")
     
     #set file output path and name
-    filename = "output_" + str(png_timestamp) + "_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2) + ".png"
+    if filename is None:
+        filename = "place_" + str(png_timestamp) + "_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2) + ".png"
     
     print("beginning to generate output image: " + filename)
     
     os.chdir(os.path.dirname(__file__))
-    outfile = os.path.join(os.getcwd(), filename)
+    
+    outdir = os.path.join(os.getcwd(), output_directory)
+    
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+    
+    outfile = os.path.join(outdir, filename)
     
     #create output image and lookup pixel colour values
     im = Image.new( 'RGB', (x2 - x1 + 1, y2 - y1 + 1), "black")
@@ -287,6 +294,10 @@ def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs):
     im.save(outfile, "PNG")
             
     print("Completed generating output image: " + filename)
+    
+def GeneratePNGSequence(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2, base_pixels, pixels_diffs):
+    for index in range(length_sequence):
+        GeneratePNG(sequence_timestamp + (index * length_step), x1, y1, x2, y2, base_pixels, diff_pixels, "seq_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2), str(sequence_timestamp + (index * length_step)) + ".png")
         
 if __name__ == "__main__":
     DropAllTables()
@@ -296,6 +307,9 @@ if __name__ == "__main__":
     diff_pixels = LoadDiffPixelsIntoMemory()
     base_pixels = LoadBasePixelsIntoMemory()
     
-    GeneratePNG(1491080102, 0, 0, 300, 300, base_pixels, diff_pixels)
-    GeneratePNG(1491208223, 0, 0, 300, 300, base_pixels, diff_pixels)
+    #GeneratePNG(50, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
+    #GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
+    #GeneratePNG(1491080102, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
+    #GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
             
+    GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels)
