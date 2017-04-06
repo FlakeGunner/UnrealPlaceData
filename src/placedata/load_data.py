@@ -9,6 +9,8 @@ import sqlite3
 import struct
 import datetime
 import os
+import tempfile
+import imageio
 
 def ColourLookupRGBToKey(rgb_tuple):
     colour_reference = dict()
@@ -250,7 +252,7 @@ def GetPixelColour(pixel_timestamp, x, y, base_pixels, pixels_diffs):
     #if there's no diff that matches return last pixel value in diffs
     return diffs[-1][1]
         
-def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output_directory, filename = None):
+def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output_path = None, filename = None):
     #validate timestamp and x,y inputs
     if png_timestamp < 0:
         raise ValueError("Negative timestamp in generate png")
@@ -271,11 +273,14 @@ def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output
     if filename is None:
         filename = "place_" + str(png_timestamp) + "_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2) + ".png"
     
-    print("beginning to generate output image: " + filename)
+    #print("beginning to generate output image: " + filename)
     
     os.chdir(os.path.dirname(__file__))
     
-    outdir = os.path.join(os.getcwd(), output_directory)
+    if output_path is None:
+        outdir = os.getcwd()
+    else:
+        outdir = output_path
     
     if not os.path.exists(outdir):
         os.makedirs(outdir)
@@ -287,29 +292,53 @@ def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output
     pixels = im.load() 
     for i in range(im.size[0]):   
         for j in range(im.size[1]):
-            #pixels[i,j] = ColourLookupKeyToRGB(GetPixelColour(png_timestamp, x1 + i, y1 + j))
             colour_key = GetPixelColour(png_timestamp, x1 + i, y1 + j, base_pixels, pixels_diffs)
             pixels[i,j] = ColourLookupKeyToRGB(colour_key)
             
     im.save(outfile, "PNG")
             
-    print("Completed generating output image: " + filename)
+    #print("Completed generating output image: " + filename)
     
-def GeneratePNGSequence(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2, base_pixels, pixels_diffs):
+def GeneratePNGSequence(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2, base_pixels, pixels_diffs, out_path = None):
+    if out_path is None:
+        out_path = os.path.join(os.getcwd(), "seq_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2))
+    
     for index in range(length_sequence):
-        GeneratePNG(sequence_timestamp + (index * length_step), x1, y1, x2, y2, base_pixels, diff_pixels, "seq_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2), str(sequence_timestamp + (index * length_step)) + ".png")
-        
+        GeneratePNG(sequence_timestamp + (index * length_step), x1, y1, x2, y2, base_pixels, diff_pixels, out_path, str(sequence_timestamp + (index * length_step)) + ".png")
+
+def GenerateGif(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2, base_pixels, pixels_diffs):
+    #create temp folder to hold intermediate pngs
+    temp_dir = tempfile.TemporaryDirectory()
+    GeneratePNGSequence(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2, base_pixels, pixels_diffs, temp_dir.name)
+    
+    frames = []
+    
+    for root, dirs, filenames in os.walk(temp_dir.name):
+        for filename in filenames:
+            if filename.endswith(".png"):
+                frames.append(imageio.imread(os.path.join(temp_dir.name, filename)))
+                
+    kargs = { 'fps' : 60.0 }
+    
+    filename = str(sequence_timestamp) + "_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2) + "_" + str(length_sequence) + ".gif"
+    
+    imageio.mimsave(filename, frames, 'GIF-PIL', **kargs)
+    
+    
 if __name__ == "__main__":
-    DropAllTables()
-    PopulateSQLiteWithPixelDiffs()
-    PopulateSQLiteWithBasePixels()
+    #DropAllTables()
+    #PopulateSQLiteWithPixelDiffs()
+    #PopulateSQLiteWithBasePixels()
     
     diff_pixels = LoadDiffPixelsIntoMemory()
     base_pixels = LoadBasePixelsIntoMemory()
     
-    #GeneratePNG(50, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
+    #GeneratePNG(50, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png", "filename.png")
     #GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
     #GeneratePNG(1491080102, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
     #GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
             
-    GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels)
+    #GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels, "blah")
+    
+    #GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels)
+    GenerateGif(1490986860, 3500, 60, 441, 615, 505, 705, base_pixels, diff_pixels)
