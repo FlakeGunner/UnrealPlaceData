@@ -25,3 +25,4 @@ local.properties
 *.db
 *.db-journal
 *.gif
+*.log

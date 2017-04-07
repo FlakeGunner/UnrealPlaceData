@@ -11,6 +11,7 @@ import datetime
 import os
 import tempfile
 import imageio
+import logging
 
 def ColourLookupRGBToKey(rgb_tuple):
     colour_reference = dict()
@@ -87,7 +88,7 @@ def DropAllTables():
     conn = sqlite3.connect('PlaceData.db')
     c = conn.cursor()
     
-    print("Dropping all tables")
+    logging.info("Dropping all tables")
     
     c.execute("drop table if exists pixel_diffs")
     
@@ -97,12 +98,12 @@ def DropAllTables():
     
     conn.close()
     
-    print("Finished dropping all tables")
+    logging.info("Finished dropping all tables")
     
 
 def PopulateSQLiteWithPixelDiffs():
     all_diffs = []
-    print("starting to read in binary data")
+    logging.info("starting to read in binary data")
     
     with open("diffs.bin", "rb") as binary_file:
         binary_file.seek(0)
@@ -113,9 +114,9 @@ def PopulateSQLiteWithPixelDiffs():
             all_diffs.append(pixel_diff)
             pixel_diff_bytes = binary_file.read(16)
             
-    print("completed reading in binary data")
+    logging.info("completed reading in binary data")
     
-    print("starting to write pixel diffs to SQLite table")
+    logging.info("starting to write pixel diffs to SQLite table")
             
     conn = sqlite3.connect('PlaceData.db')
     c = conn.cursor()
@@ -131,7 +132,7 @@ def PopulateSQLiteWithPixelDiffs():
     
     conn.close()
     
-    print("completed writing pixel diffs to SQLite table")
+    logging.info("completed writing pixel diffs to SQLite table")
     
 
 def PopulateSQLiteWithBasePixels():
@@ -140,16 +141,16 @@ def PopulateSQLiteWithBasePixels():
     im = Image.open("base.png")
     width, height = im.size
     
-    print("starting to read in png file to get base pixel values")
+    logging.info("starting to read in png file to get base pixel values")
     
     for outer in range(0,width):
         for inner in range(0, height):
             all_base_pixels.append(BasePixel(outer,inner,ColourLookupRGBToKey(im.getpixel((outer,inner)))))
             
             
-    print("completed reading in png file to get base pixel values")    
+    logging.info("completed reading in png file to get base pixel values")    
     
-    print("starting to write base pixel to SQLite table")
+    logging.info("starting to write base pixel to SQLite table")
     
     conn = sqlite3.connect('PlaceData.db')
     c = conn.cursor()
@@ -165,7 +166,7 @@ def PopulateSQLiteWithBasePixels():
     
     conn.close()
     
-    print("completed writing base pixel to SQLite table")
+    logging.info("completed writing base pixel to SQLite table")
     
     
 def VerifyTableExists(table_name):
@@ -183,7 +184,7 @@ def VerifyTableExists(table_name):
 def LoadBasePixelsIntoMemory():
     VerifyTableExists("pixel_base")
     
-    print("loading base pixels into memory")
+    logging.info("loading base pixels into memory")
     #select all from pixel base table and store in dictionary
     conn = sqlite3.connect('PlaceData.db')
     c = conn.cursor()
@@ -197,14 +198,14 @@ def LoadBasePixelsIntoMemory():
     
     conn.close()
     
-    print("finished loading base pixels into memory")
+    logging.info("finished loading base pixels into memory")
     
     return base_pixels
 
 def LoadDiffPixelsIntoMemory():
     VerifyTableExists("pixel_diffs")
     
-    print("loading pixel diffs into memory")
+    logging.info("loading pixel diffs into memory")
     #select all from pixel diffs table and store in dictionary
     conn = sqlite3.connect('PlaceData.db')
     c = conn.cursor()
@@ -216,7 +217,7 @@ def LoadDiffPixelsIntoMemory():
     for row in c.fetchall():
         pixel_diffs[(row[1],row[2])].append((row[0],row[3]))
         
-    print("finished loading pixel diffs into memory")
+    logging.info("finished loading pixel diffs into memory")
     
     return pixel_diffs
     
@@ -232,7 +233,7 @@ def GetPixelColour(pixel_timestamp, x, y, base_pixels, pixels_diffs):
         return base_colour
     
     
-    diffs = diff_pixels[x, y]
+    diffs = pixels_diffs[x, y]
     
     #if there's no diffs for that pixel return base pixel
     if not diffs:
@@ -273,7 +274,7 @@ def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output
     if filename is None:
         filename = "place_" + str(png_timestamp) + "_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2) + ".png"
     
-    #print("beginning to generate output image: " + filename)
+    logging.info("beginning to generate output image: " + filename)
     
     os.chdir(os.path.dirname(__file__))
     
@@ -297,16 +298,21 @@ def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output
             
     im.save(outfile, "PNG")
             
-    #print("Completed generating output image: " + filename)
+    logging.info("Completed generating output image: " + filename)
     
 def GeneratePNGSequence(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2, base_pixels, pixels_diffs, out_path = None):
+    logging.info("Started generating PNG Sequence")
+
     if out_path is None:
         out_path = os.path.join(os.getcwd(), "seq_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2))
     
     for index in range(length_sequence):
-        GeneratePNG(sequence_timestamp + (index * length_step), x1, y1, x2, y2, base_pixels, diff_pixels, out_path, str(sequence_timestamp + (index * length_step)) + ".png")
+        GeneratePNG(sequence_timestamp + (index * length_step), x1, y1, x2, y2, base_pixels, pixels_diffs, out_path, str(sequence_timestamp + (index * length_step)) + ".png")
+        
+    logging.info("Finished generating PNG Sequence")
 
 def GenerateGif(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2, base_pixels, pixels_diffs):
+    logging.info("Started generating Gif")
     #create temp folder to hold intermediate pngs
     temp_dir = tempfile.TemporaryDirectory()
     GeneratePNGSequence(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2, base_pixels, pixels_diffs, temp_dir.name)
@@ -324,21 +330,37 @@ def GenerateGif(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2
     
     imageio.mimsave(filename, frames, 'GIF-PIL', **kargs)
     
+    logging.info("Finished generating Gif")
     
-if __name__ == "__main__":
-    #DropAllTables()
-    #PopulateSQLiteWithPixelDiffs()
-    #PopulateSQLiteWithBasePixels()
+def main():
+    FORMAT = '%(asctime)s - %(message)s'
+    logging.basicConfig(format=FORMAT, filename='place_data.log', level=logging.INFO)
+    
+    logging.info("Starting up")
+    
+    
+    DropAllTables()
+    PopulateSQLiteWithPixelDiffs()
+    PopulateSQLiteWithBasePixels()
+
+    
     
     diff_pixels = LoadDiffPixelsIntoMemory()
     base_pixels = LoadBasePixelsIntoMemory()
     
-    #GeneratePNG(50, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png", "filename.png")
-    #GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
-    #GeneratePNG(1491080102, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
-    #GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
+    GeneratePNG(50, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png", "filename.png")
+    GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
+    GeneratePNG(1491080102, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
+    GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
             
-    #GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels, "blah")
+    GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels, "blah")
     
-    #GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels)
-    GenerateGif(1490986860, 3500, 60, 441, 615, 505, 705, base_pixels, diff_pixels)
+    GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels)
+    GenerateGif(1490986860, 419, 600, 424, 523, 529, 750, base_pixels, diff_pixels)
+    
+    logging.info("Finished")
+    
+if __name__ == "__main__":
+    main()
+    
+    
