@@ -78,6 +78,9 @@ python makegif.py
 python makegif.py 300 700 450 900 1491073260 300 --silent
 ```
 
+## Bugs / Features Requests
+- If you find any bugs or would like a feature feel free to add an [issue](https://github.com/FlakeGunner/UnrealPlaceData/issues)
+
 ## Current functionality
 - This script takes the base.png and diffs.bin created by [u/mncke](https://www.reddit.com/user/mncke) and stores that data in two SQLite tables.
 - Loads that data into memory from SQLite tables
