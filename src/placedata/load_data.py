@@ -12,8 +12,30 @@ import os
 import tempfile
 import imageio
 import logging
+import argparse
+import progressbar
+import sys
 
-def ColourLookupRGBToKey(rgb_tuple):
+min_timestamp = 1490986860 #we don't have data before this timestamp
+max_timestamp = 1491238721 #timestamp when r/place finished
+
+
+def ParseArgs():   
+    parser = argparse.ArgumentParser(description='Make timelapse gifs from the reddit r/place archive (archive data provided by reddit user: u/mncke')
+    parser.add_argument("makegif", help="Make a gif, eg. makegif 1 1 1000 1000, makegif 128 128 256 256 1490986860 600")
+    parser.add_argument("x1", nargs='?', type = int, help='X coordinate of pixel to start gif from, valid values: 1-1000, default: 0.', const=0, default=0)
+    parser.add_argument("y1", nargs='?', type = int, help='Y coordinate of pixel to start gif from, valid values: 1-1000, default:0.', const=0, default=0)
+    parser.add_argument("x2", nargs='?', type = int, help='X coordinate of pixel to finish gif from, valid values: 1-1000, must be greater than x1, default: 1000.', const=1000, default=1000)
+    parser.add_argument("y2", nargs='?', type = int, help='Y coordinate of pixel to finish gif from, valid values: 1-1000, must be greater than y1, default: 1000.', const=1000, default=1000)
+    parser.add_argument("timestamp", nargs='?', type = int, 
+                        help='Epoch timestamp to start gif from.  r/place data starts from: ' + str(min_timestamp) + " and ends at " + str(max_timestamp) + ", default: " + str(min_timestamp) + ".", 
+                        const=min_timestamp, default=min_timestamp)
+    parser.add_argument("delay", nargs='?', type = int, help='Delay in seconds between snapshots/gif frames, default:60.', const=60, default=60)
+    parser.add_argument("--silent", help="Don't display progress bars, runs a bit faster.", action="store_true")
+    
+    return parser.parse_args()
+
+def GetColorTable():
     colour_reference = dict()
     colour_reference[0] = (255,255,255) #FFFFFF
     colour_reference[1] = (228,228,228) #E4E4E4
@@ -31,6 +53,11 @@ def ColourLookupRGBToKey(rgb_tuple):
     colour_reference[13] = (0,0,234) #0000EA
     colour_reference[14] = (207,110,228) #CF6EE4
     colour_reference[15] = (130,0,128) #820080
+    
+    return colour_reference
+
+def ColourLookupRGBToKey(rgb_tuple):
+    colour_reference = GetColorTable()
     
     for colour_key, colour_value in colour_reference.items():
         if colour_value == rgb_tuple:
@@ -39,25 +66,7 @@ def ColourLookupRGBToKey(rgb_tuple):
     raise ValueError('Failed to lookup colour reference')
 
 def ColourLookupKeyToRGB(colour_key):
-    colour_reference = dict()
-    colour_reference[0] = (255,255,255) #FFFFFF
-    colour_reference[1] = (228,228,228) #E4E4E4
-    colour_reference[2] = (136,136,136) #888888
-    colour_reference[3] = (34,34,34) #222222
-    colour_reference[4] = (255,167,209) #FFA7D1
-    colour_reference[5] = (229,0,0) #E50000
-    colour_reference[6] = (229,149,0) #E59500
-    colour_reference[7] = (160,106,66) #A06A42
-    colour_reference[8] = (229,217,0) #E5D900
-    colour_reference[9] = (148,224,68) #94E044
-    colour_reference[10] = (2,190,1) #02BE01
-    colour_reference[11] = (0,211,221) #00D3DD
-    colour_reference[12] = (0,131,199) #0083C7
-    colour_reference[13] = (0,0,234) #0000EA
-    colour_reference[14] = (207,110,228) #CF6EE4
-    colour_reference[15] = (130,0,128) #820080
-    
-    return colour_reference[colour_key]
+    return GetColorTable()[colour_key]
         
 
 class BasePixel:
@@ -83,6 +92,28 @@ class DiffPixel:
         
         def getSQLiteInsertString(self):
             return "(" + str(self.timestamp) + "," + str(self.x) + "," + str(self.y) + "," + str(self.colour) + ")"
+        
+class ProgressBarWrapper:
+    def __init__(self, label, update_interval, max_value):
+        if not silent:
+            self.bar = progressbar.ProgressBar(widgets = [label, 
+                                                     progressbar.Bar(marker='#', left='[', right=']')], max_value=max_value)
+            self.bar_progress = 0
+            self.bar_update_count = 0
+            self.update_interval = update_interval;
+        
+    def update(self):
+        if not silent:
+            self.bar_progress += 1
+            self.bar_update_count += 1
+            if self.bar_progress % self.update_interval == 0:
+                self.bar_update_count = 0
+                self.bar.update(self.bar_progress)
+            
+    def finish(self):
+        if not silent:
+            self.bar.update(self.bar_progress)
+            self.bar.finish()
 
 def DropAllTables():
     conn = sqlite3.connect('PlaceData.db')
@@ -105,15 +136,27 @@ def PopulateSQLiteWithPixelDiffs():
     all_diffs = []
     logging.info("starting to read in binary data")
     
-    with open("diffs.bin", "rb") as binary_file:
-        binary_file.seek(0)
-        pixel_diff_bytes = binary_file.read(16)
-        while pixel_diff_bytes:
-            pixel_diff_tuple = struct.unpack('<IIII', pixel_diff_bytes)
-            pixel_diff = DiffPixel(pixel_diff_tuple[0], pixel_diff_tuple[1], pixel_diff_tuple[2], pixel_diff_tuple[3])
-            all_diffs.append(pixel_diff)
+    
+    try:
+        with open("diffs.bin", "rb") as binary_file:
+            binary_file.seek(0)
             pixel_diff_bytes = binary_file.read(16)
+            number_of_diffs = os.path.getsize("diffs.bin") / 16
+            bar = ProgressBarWrapper("Loading pixel diffs: ", 50000, number_of_diffs)
             
+            while pixel_diff_bytes:
+                pixel_diff_tuple = struct.unpack('<IIII', pixel_diff_bytes)
+                pixel_diff = DiffPixel(pixel_diff_tuple[0], pixel_diff_tuple[1], pixel_diff_tuple[2], pixel_diff_tuple[3])
+                all_diffs.append(pixel_diff)
+                pixel_diff_bytes = binary_file.read(16)
+                bar.update()
+    
+    except IOError:
+        logging.critical("Could not open pixel diffs binary file: diffs.bin")
+        exit("Could not open pixel diffs binary file: diffs.bin")
+         
+    bar.finish()
+       
     logging.info("completed reading in binary data")
     
     logging.info("starting to write pixel diffs to SQLite table")
@@ -125,8 +168,12 @@ def PopulateSQLiteWithPixelDiffs():
     
     c.execute('''CREATE INDEX pixel_diffs_index ON pixel_diffs (timestamp, x, y)''')
     
+    bar = ProgressBarWrapper("Inserting pixel diffs: ", 50000, number_of_diffs)
     for curDiff in  all_diffs:
         c.execute("INSERT INTO pixel_diffs VALUES " + curDiff.getSQLiteInsertString())
+        bar.update()
+    
+    bar.finish()
     
     conn.commit()
     
@@ -137,17 +184,24 @@ def PopulateSQLiteWithPixelDiffs():
 
 def PopulateSQLiteWithBasePixels():
     all_base_pixels = []
-    
-    im = Image.open("base.png")
+    try:
+        im = Image.open("base.png")
+    except IOError:
+        logging.critical("Could not open pixel base png: base.png")
+        exit("Could not open pixel base png: base.png")
     width, height = im.size
     
     logging.info("starting to read in png file to get base pixel values")
     
+    bar = ProgressBarWrapper("Loading base pixels: ", 500, width * height)
+    
     for outer in range(0,width):
         for inner in range(0, height):
             all_base_pixels.append(BasePixel(outer,inner,ColourLookupRGBToKey(im.getpixel((outer,inner)))))
+            bar.update()
             
-            
+    
+    bar.finish()        
     logging.info("completed reading in png file to get base pixel values")    
     
     logging.info("starting to write base pixel to SQLite table")
@@ -159,15 +213,79 @@ def PopulateSQLiteWithBasePixels():
     
     c.execute('''CREATE INDEX pixel_base_index ON pixel_base (x, y)''')
     
+    bar = ProgressBarWrapper("Inserting base pixels: ", 1000, len(all_base_pixels))
+    
     for curPixel in  all_base_pixels:
         c.execute("INSERT INTO pixel_base VALUES " + curPixel.getSQLiteInsertString())
+        bar.update()
     
+    bar.finish()
     conn.commit()
     
     conn.close()
     
     logging.info("completed writing base pixel to SQLite table")
     
+def ValidateSQLiteTables():
+    #check if tables exist and have right number of entries, if not rebuild
+    logging.info("Validating SQLite Tables")
+    
+    conn = sqlite3.connect('PlaceData.db')
+    c = conn.cursor()
+    
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pixel_diffs'")
+    
+    result = c.fetchone()
+    if result is None:
+        raise ValueError("Database doesn't exist")
+    if result[0] != "pixel_diffs":
+        raise ValueError("pixel_diffs tables doesn't exist")
+
+
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pixel_base'")
+    
+    result = c.fetchone()
+    if result is None:
+        raise ValueError("Database doesn't exist")
+    if result[0] != "pixel_base":
+        raise ValueError("pixel_base tables doesn't exist")
+    
+    
+    c.execute("SELECT MAX(_ROWID_) FROM 'pixel_base' LIMIT 1")
+    result = c.fetchone()
+    if result is None:
+        raise ValueError("Database doesn't exist")
+    if result[0] != 1000000:
+        raise ValueError("Wrong row count is pixel_base")
+
+    c.execute("SELECT MAX(_ROWID_) FROM 'pixel_diffs' LIMIT 1")
+    result = c.fetchone()
+    if result is None:
+        raise ValueError("Database doesn't exist")
+    if result[0] != 11968422:
+        raise ValueError("Wrong row count is pixel_diffs")
+    
+    conn.close()
+
+
+def ValidateArgs(x1, y1, x2, y2, timestamp, delay):
+    #validate timestamp and x,y inputs
+    if timestamp < 0:
+        raise ValueError("Negative timestamp in generate png")
+    if (timestamp + delay) >= max_timestamp:
+        raise ValueError("Delay is too long, gif wont have any frames")
+    if x2 <= x1:
+        raise ValueError("x2 can't be equal or smaller than x1")
+    if y2 <= y1:
+        raise ValueError("y2 can't be equal or smaller than y1")
+    if x1 < 0 or x1 > 999:
+        raise ValueError("Bad x1 value in generate png")
+    if y2 <= y1 or y1 < 0 or y1 > 999:
+        raise ValueError("Bad y1 value in generate png")
+    if x2 < 1 or x2 > 1000:
+        raise ValueError("Bad x2 value in generate png")
+    if y2 < 1 or y2 > 1000:
+        raise ValueError("Bad y2 value in generate png")
     
 def VerifyTableExists(table_name):
     conn = sqlite3.connect('PlaceData.db')
@@ -189,13 +307,21 @@ def LoadBasePixelsIntoMemory():
     conn = sqlite3.connect('PlaceData.db')
     c = conn.cursor()
     
+    print("Fetching Pixel Base...")
+    sys.stdout.flush()
     c.execute('SELECT * FROM pixel_base')
     
     base_pixels = {}
     
-    for row in c.fetchall():
-        base_pixels[(row[0],row[1])] = row[2]
+    result = c.fetchall()
     
+    bar = ProgressBarWrapper("Loading base pixels: ", 30000, len(result))
+    
+    for row in result:
+        base_pixels[(row[0],row[1])] = row[2]
+        bar.update()
+    
+    bar.finish()
     conn.close()
     
     logging.info("finished loading base pixels into memory")
@@ -210,21 +336,25 @@ def LoadDiffPixelsIntoMemory():
     conn = sqlite3.connect('PlaceData.db')
     c = conn.cursor()
     
+    print("Fetching Pixel diffs...")
+    sys.stdout.flush()
     c.execute('SELECT * FROM pixel_diffs')
     
     pixel_diffs = defaultdict(list)
     
-    for row in c.fetchall():
+    result = c.fetchall()
+    bar = ProgressBarWrapper("Loading pixel diffs: ", 50000, len(result))
+    for row in result:
         pixel_diffs[(row[1],row[2])].append((row[0],row[3]))
+        bar.update()
         
+    bar.finish()
     logging.info("finished loading pixel diffs into memory")
     
     return pixel_diffs
     
         
 def GetPixelColour(pixel_timestamp, x, y, base_pixels, pixels_diffs):
-    min_timestamp = 1490986860 #we don't have data before this timestamp
-    
     #look up the base pixel colour
     base_colour = base_pixels[(x,y)]
     
@@ -254,32 +384,13 @@ def GetPixelColour(pixel_timestamp, x, y, base_pixels, pixels_diffs):
     return diffs[-1][1]
         
 def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output_path = None, filename = None):
-    #validate timestamp and x,y inputs
-    if png_timestamp < 0:
-        raise ValueError("Negative timestamp in generate png")
-    if x2 <= x1:
-        raise ValueError("x2 can't be equal or smaller than x1")
-    if y2 <= y1:
-        raise ValueError("y2 can't be equal or smaller than y1")
-    if x1 < 0 or x1 > 999:
-        raise ValueError("Bad x1 value in generate png")
-    if y2 <= y1 or y1 < 0 or y1 > 999:
-        raise ValueError("Bad y1 value in generate png")
-    if x2 < 0 or x2 > 999:
-        raise ValueError("Bad x2 value in generate png")
-    if y2 < 0 or y2 > 999:
-        raise ValueError("Bad y2 value in generate png")
-    
+
     #set file output path and name
     if filename is None:
         filename = "place_" + str(png_timestamp) + "_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2) + ".png"
     
-    logging.info("beginning to generate output image: " + filename)
-    
-    os.chdir(os.path.dirname(__file__))
-    
     if output_path is None:
-        outdir = os.getcwd()
+        outdir = os.path.abspath(__file__)
     else:
         outdir = output_path
     
@@ -287,6 +398,8 @@ def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output
         os.makedirs(outdir)
     
     outfile = os.path.join(outdir, filename)
+    
+    logging.info("beginning to generate image: " + outfile)
     
     #create output image and lookup pixel colour values
     im = Image.new( 'RGB', (x2 - x1 + 1, y2 - y1 + 1), "black")
@@ -306,8 +419,13 @@ def GeneratePNGSequence(sequence_timestamp, length_sequence, length_step, x1, y1
     if out_path is None:
         out_path = os.path.join(os.getcwd(), "seq_" + str(x1) + "_" + str(y1) + "_" + str(x2) + "_" + str(y2))
     
+    bar = ProgressBarWrapper("Generating PNGs: ", 1, length_sequence)
+    
     for index in range(length_sequence):
         GeneratePNG(sequence_timestamp + (index * length_step), x1, y1, x2, y2, base_pixels, pixels_diffs, out_path, str(sequence_timestamp + (index * length_step)) + ".png")
+        bar.update()
+    
+    bar.finish()
         
     logging.info("Finished generating PNG Sequence")
 
@@ -315,6 +433,7 @@ def GenerateGif(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2
     logging.info("Started generating Gif")
     #create temp folder to hold intermediate pngs
     temp_dir = tempfile.TemporaryDirectory()
+    logging.info("Created temp directory to hold intermediate PNGs: " + temp_dir.name)
     GeneratePNGSequence(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2, base_pixels, pixels_diffs, temp_dir.name)
     
     frames = []
@@ -331,36 +450,46 @@ def GenerateGif(sequence_timestamp, length_sequence, length_step, x1, y1, x2, y2
     imageio.mimsave(filename, frames, 'GIF-PIL', **kargs)
     
     logging.info("Finished generating Gif")
+
+if __name__ == '__main__':
+
+    args = ParseArgs()
     
-def main():
+    if args.silent:
+        silent = True
+    else:
+        silent = False
+    
     FORMAT = '%(asctime)s - %(message)s'
     logging.basicConfig(format=FORMAT, filename='place_data.log', level=logging.INFO)
-    
     logging.info("Starting up")
     
+    try:
+        ValidateArgs(args.x1, args.x2, args.y1, args.y2, args.timestamp, args.delay)
+    except ValueError as error:
+        logging.critical("Argument not valid: " + str(error))
+        exit("Argument not valid: " + str(error))
     
-    DropAllTables()
-    PopulateSQLiteWithPixelDiffs()
-    PopulateSQLiteWithBasePixels()
-
+    #-1 for array index
+    args.x1 -= 1
+    args.y1 -= 1
+    args.x2 -= 1
+    args.y2 -= 1
     
-    
-    diff_pixels = LoadDiffPixelsIntoMemory()
-    base_pixels = LoadBasePixelsIntoMemory()
-    
-    GeneratePNG(50, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png", "filename.png")
-    GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
-    GeneratePNG(1491080102, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
-    GeneratePNG(1491503573, 0, 0, 999, 999, base_pixels, diff_pixels, "out_png")
-            
-    GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels, "blah")
-    
-    GeneratePNGSequence(1491080102, 200, 120, 441, 615, 519, 733, base_pixels, diff_pixels)
-    GenerateGif(1490986860, 419, 600, 424, 523, 529, 750, base_pixels, diff_pixels)
-    
+    number_of_steps = (max_timestamp - min_timestamp) // args.delay  
+ 
+    try:
+        ValidateSQLiteTables()
+    except ValueError as error:
+        logging.warn("SQLite tables need to be rebuilt, this should only happen once")
+        print("SQLite tables need to be rebuilt, this should only happen once") 
+        DropAllTables()
+        PopulateSQLiteWithBasePixels()
+        PopulateSQLiteWithPixelDiffs()
+        
+    if args.makegif:
+        diff_pixels = LoadDiffPixelsIntoMemory()
+        base_pixels = LoadBasePixelsIntoMemory()
+        GenerateGif(args.timestamp, number_of_steps, args.delay, args.x1, args.y1, args.x2, args.y2, base_pixels, diff_pixels)
+         
     logging.info("Finished")
-    
-if __name__ == "__main__":
-    main()
-    
-    
