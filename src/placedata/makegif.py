@@ -15,14 +15,26 @@ import logging
 import argparse
 import progressbar
 import sys
+import textwrap
 
 min_timestamp = 1490986860 #we don't have data before this timestamp
 max_timestamp = 1491238721 #timestamp when r/place finished
 
 
 def ParseArgs():   
-    parser = argparse.ArgumentParser(description='Make timelapse gifs from the reddit r/place archive (archive data provided by reddit user: u/mncke')
-    parser.add_argument("makegif", help="Make a gif, eg. makegif 1 1 1000 1000, makegif 128 128 256 256 1490986860 600")
+    parser = argparse.ArgumentParser( prog='makegif.py',
+                                      formatter_class=argparse.RawDescriptionHelpFormatter,
+                                      description=textwrap.dedent('''\
+                                                                            Make timelapse gifs of r/place - Based on data archive provided by u/mncke
+                                                                            --------------------------------------------------------------------------
+                                                                                Example usage:
+                                                                                    Make a gif with default values
+                                                                                        > makegif.py 
+                                                                                    Make a gif from point (256,256) to (512,512), 
+                                                                                    starting a day into archive data, snapshots ever 3 minutes 
+                                                                                        > makegif.py 256 256 512 512 1491073260 180
+                                                                        '''))
+
     parser.add_argument("x1", nargs='?', type = int, help='X coordinate of pixel to start gif from, valid values: 1-1000, default: 0.', const=0, default=0)
     parser.add_argument("y1", nargs='?', type = int, help='Y coordinate of pixel to start gif from, valid values: 1-1000, default:0.', const=0, default=0)
     parser.add_argument("x2", nargs='?', type = int, help='X coordinate of pixel to finish gif from, valid values: 1-1000, must be greater than x1, default: 1000.', const=1000, default=1000)
@@ -465,7 +477,7 @@ if __name__ == '__main__':
     logging.info("Starting up")
     
     try:
-        ValidateArgs(args.x1, args.x2, args.y1, args.y2, args.timestamp, args.delay)
+        ValidateArgs(args.x1, args.y1, args.x2, args.y2, args.timestamp, args.delay)
     except ValueError as error:
         logging.critical("Argument not valid: " + str(error))
         exit("Argument not valid: " + str(error))
@@ -487,9 +499,9 @@ if __name__ == '__main__':
         PopulateSQLiteWithBasePixels()
         PopulateSQLiteWithPixelDiffs()
         
-    if args.makegif:
-        diff_pixels = LoadDiffPixelsIntoMemory()
-        base_pixels = LoadBasePixelsIntoMemory()
-        GenerateGif(args.timestamp, number_of_steps, args.delay, args.x1, args.y1, args.x2, args.y2, base_pixels, diff_pixels)
+    
+    diff_pixels = LoadDiffPixelsIntoMemory()
+    base_pixels = LoadBasePixelsIntoMemory()
+    GenerateGif(args.timestamp, number_of_steps, args.delay, args.x1, args.y1, args.x2, args.y2, base_pixels, diff_pixels)
          
     logging.info("Finished")
