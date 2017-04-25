@@ -35,8 +35,8 @@ def ParseArgs():
                                                                                         > makegif.py 256 256 512 512 1491073260 180
                                                                         '''))
 
-    parser.add_argument("x1", nargs='?', type = int, help='X coordinate of pixel to start gif from, valid values: 1-1000, default: 0.', const=0, default=0)
-    parser.add_argument("y1", nargs='?', type = int, help='Y coordinate of pixel to start gif from, valid values: 1-1000, default:0.', const=0, default=0)
+    parser.add_argument("x1", nargs='?', type = int, help='X coordinate of pixel to start gif from, valid values: 1-1000, default: 0.', const=1, default=1)
+    parser.add_argument("y1", nargs='?', type = int, help='Y coordinate of pixel to start gif from, valid values: 1-1000, default:0.', const=1, default=1)
     parser.add_argument("x2", nargs='?', type = int, help='X coordinate of pixel to finish gif from, valid values: 1-1000, must be greater than x1, default: 1000.', const=1000, default=1000)
     parser.add_argument("y2", nargs='?', type = int, help='Y coordinate of pixel to finish gif from, valid values: 1-1000, must be greater than y1, default: 1000.', const=1000, default=1000)
     parser.add_argument("timestamp", nargs='?', type = int, 
@@ -44,6 +44,7 @@ def ParseArgs():
                         const=min_timestamp, default=min_timestamp)
     parser.add_argument("delay", nargs='?', type = int, help='Delay in seconds between snapshots/gif frames, default:60.', const=60, default=60)
     parser.add_argument("--silent", help="Don't display progress bars, runs a bit faster.", action="store_true")
+    parser.add_argument("--enlarge", help="Enlarge gif size by 4", action="store_true")
     
     return parser.parse_args()
 
@@ -411,17 +412,39 @@ def GeneratePNG(png_timestamp, x1, y1, x2, y2, base_pixels, pixels_diffs, output
     
     outfile = os.path.join(outdir, filename)
     
-    logging.info("beginning to generate image: " + outfile)
+    logging.info("Beginning to generate image: " + outfile)
     
-    #create output image and lookup pixel colour values
-    im = Image.new( 'RGB', (x2 - x1 + 1, y2 - y1 + 1), "black")
-    pixels = im.load() 
-    for i in range(im.size[0]):   
-        for j in range(im.size[1]):
-            colour_key = GetPixelColour(png_timestamp, x1 + i, y1 + j, base_pixels, pixels_diffs)
-            pixels[i,j] = ColourLookupKeyToRGB(colour_key)
-            
-    im.save(outfile, "PNG")
+    if args.enlarge:
+        logging.info("Generating enlarged size")
+        width = x2 - x1 + 1
+        height = y2 - y1 + 1
+        im_enlarged = Image.new( 'RGB', (width * 4, height * 4), "black")
+        pixels = im_enlarged.load()
+        for i in range(width):
+            for j in range(height):
+                colour_key = GetPixelColour(png_timestamp, x1 + i, y1 + j, base_pixels, pixels_diffs)
+                enlarge_factor = 4
+                for enlarged_pixel_x in range(enlarge_factor):
+                    for enlarged_pixel_y in range(enlarge_factor):
+                        x = (i * enlarge_factor) + enlarged_pixel_x
+                        y = (j * enlarge_factor) + enlarged_pixel_y
+                        pixels[x,y] = ColourLookupKeyToRGB(colour_key)
+                        
+        im_enlarged.save(outfile, "PNG")
+        
+    else:
+        logging.info("Generating normal size")
+        #create output image and lookup pixel colour values
+        im = Image.new( 'RGB', (x2 - x1 + 1, y2 - y1 + 1), "black")
+        pixels = im.load() 
+        for i in range(im.size[0]):   
+            for j in range(im.size[1]):
+                colour_key = GetPixelColour(png_timestamp, x1 + i, y1 + j, base_pixels, pixels_diffs)
+                pixels[i,j] = ColourLookupKeyToRGB(colour_key)
+                        
+                
+                
+        im.save(outfile, "PNG")
             
     logging.info("Completed generating output image: " + filename)
     
